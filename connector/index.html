@@ -1,0 +1,126 @@
+<!doctype html>
+<!-- Zustimmungsseite für den Connector Dynasty GM in der Claude-App (Teil C, Stufe 1).
+     Supabase Auth (OAuth-Server) leitet hierher mit ?authorization_id=…; du meldest dich mit deinem
+     Konto der App an und erlaubst der Claude-App den Zugriff. Liegt als Kopie im öffentlichen Repo
+     FunkyPants96/dynasty-gm-connect (GitHub Pages, connector/index.html). Adresse und öffentlichen Schlüssel
+     (derselbe wie in der App; gelesen wird nur mit Anmeldung) holt sie bei der Funktion gm-connector. -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dynasty GM verbinden</title>
+<style>
+  :root { --bg: #f6f7f4; --card: #fff; --ink: #1b231f; --muted: #5b6760; --line: #d9ded8; --green: #1f5c3f;
+          --gold: #a8801f; --bad: #a8352a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121815; --card: #19211d; --ink: #e5ebe6; --muted: #9aa8a0; --line: #2e3a34; --green: #6fbf93;
+            --gold: #d9b45a; --bad: #e07a6c; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 420px; margin: 0 auto; padding: 48px 16px; display: grid; gap: 18px; }
+  .logo { width: 44px; height: 44px; border-radius: 10px; background: var(--green); color: #fff; display: grid;
+          place-items: center; font-weight: 700; font-size: 22px; border-bottom: 3px solid var(--gold); }
+  h1 { margin: 0; font-size: 1.5rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 12px; }
+  label { display: grid; gap: 4px; font-size: .9rem; color: var(--muted); }
+  input { font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  button { font: inherit; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--green); cursor: pointer; }
+  .primary { background: var(--green); color: #fff; }
+  .secondary { background: transparent; color: var(--ink); border-color: var(--line); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: .9rem; margin: 0; }
+  .error { color: var(--bad); margin: 0; }
+  p { margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <div class="logo" aria-hidden="true">D</div>
+  <h1>Dynasty GM verbinden</h1>
+  <div id="box" class="card"><p class="muted">Lädt …</p></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
+<script>
+const CONNECTOR = "https://qvplnlimrrpbmzrmmblt.supabase.co/functions/v1/gm-connector";
+const box = document.getElementById("box");
+const id = new URLSearchParams(location.search).get("authorization_id");
+let db;
+
+function text(tag, content, cls) {
+  const el = document.createElement(tag);
+  el.textContent = content;
+  if (cls) el.className = cls;
+  return el;
+}
+
+function show(...children) {
+  box.replaceChildren(...children);
+}
+
+function login(error) {
+  const form = document.createElement("form");
+  form.className = "card";
+  form.style.border = "0";
+  form.style.padding = "0";
+  const mail = document.createElement("input");
+  mail.type = "email"; mail.autocomplete = "email"; mail.required = true;
+  const pass = document.createElement("input");
+  pass.type = "password"; pass.autocomplete = "current-password"; pass.required = true;
+  const l1 = text("label", "E-Mail"); l1.append(mail);
+  const l2 = text("label", "Passwort"); l2.append(pass);
+  const send = text("button", "Anmelden", "primary"); send.type = "submit";
+  form.append(l1, l2, send);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    send.disabled = true;
+    const { error } = await db.auth.signInWithPassword({ email: mail.value, password: pass.value });
+    if (error) return login("Anmeldung fehlgeschlagen: " + error.message);
+    consent();
+  };
+  show(text("p", "Melde dich mit deinem Konto der App an, damit die Claude-App deine Liga lesen darf."),
+       ...(error ? [text("p", error, "error")] : []), form);
+}
+
+async function consent() {
+  if (!id) return show(text("p", "Diese Seite öffnet die Claude-App, wenn du den Connector Dynasty GM verbindest."));
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) return login();
+  const { data, error } = await db.auth.oauth.getAuthorizationDetails(id);
+  if (error) return show(text("p", "Die Anfrage ist abgelaufen oder ungültig: " + error.message, "error"),
+                         text("p", "Starte das Verbinden in der Claude-App neu.", "muted"));
+  if (!data.authorization_id && data.redirect_url) { location.href = data.redirect_url; return; }
+  const allow = text("button", "Erlauben", "primary");
+  const deny = text("button", "Ablehnen", "secondary");
+  allow.onclick = async () => {
+    allow.disabled = deny.disabled = true;
+    const { error } = await db.auth.oauth.approveAuthorization(id);
+    if (error) show(text("p", "Fehler: " + error.message, "error"));
+  };
+  deny.onclick = async () => {
+    allow.disabled = deny.disabled = true;
+    const { error } = await db.auth.oauth.denyAuthorization(id);
+    if (error) show(text("p", "Fehler: " + error.message, "error"));
+  };
+  const row = document.createElement("div");
+  row.className = "row";
+  row.append(allow, deny);
+  show(text("p", `${data.client?.name || "Die Claude-App"} möchte als ${data.user?.email || "du"} auf Dynasty GM zugreifen.`),
+       text("p", "Sie liest Kader, Werte, Strategie und Empfehlungen und darf Strategie, Regeln und Notizen nur " +
+                 "vorschlagen. Gelten tut nur, was du in der App übernimmst. In Sleeper handelt sie nie.", "muted"),
+       row);
+}
+
+async function start() {
+  try {
+    const { url, key } = await (await fetch(`${CONNECTOR}/seite`)).json();
+    db = supabase.createClient(url, key);
+  } catch (e) {
+    return show(text("p", "Dynasty GM ist nicht erreichbar: " + e.message, "error"));
+  }
+  consent();
+}
+
+start();
+</script>
+</body>
+</html>
